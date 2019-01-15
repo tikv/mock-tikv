@@ -38,7 +38,7 @@ func (r *regionInstance) start(idAlloc idAllocator, store *storeInstance) error 
 		Version: idAlloc.allocID(),
 	}
 	r.Peers = []*metapb.Peer{
-		&metapb.Peer{
+		{
 			Id:      idAlloc.allocID(),
 			StoreId: store.Id,
 		},

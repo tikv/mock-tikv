@@ -20,7 +20,7 @@ import (
 
 func convertMemberToAPI(member *memberInstance) []*api.Member {
 	return []*api.Member{
-		&api.Member{
+		{
 			Name:       member.Name,
 			MemberID:   member.MemberId,
 			ClientUrls: member.ClientUrls,
