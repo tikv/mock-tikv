@@ -19,6 +19,7 @@ import (
 
 type regionInstance struct {
 	metapb.Region
+	leader uint64
 }
 
 func newRegionInstance(id uint64, startKey, endKey []byte) *regionInstance {
@@ -28,20 +29,32 @@ func newRegionInstance(id uint64, startKey, endKey []byte) *regionInstance {
 			StartKey: startKey,
 			EndKey:   endKey,
 		},
+		leader: 0,
 	}
 }
 
-func (r *regionInstance) start(idAlloc idAllocator, store *storeInstance) error {
+func (r *regionInstance) init(idAlloc idAllocator, store *storeInstance) error {
 	r.Id = idAlloc.allocID()
 	r.RegionEpoch = &metapb.RegionEpoch{
 		ConfVer: idAlloc.allocID(),
 		Version: idAlloc.allocID(),
 	}
+	peerID := idAlloc.allocID()
 	r.Peers = []*metapb.Peer{
 		{
-			Id:      idAlloc.allocID(),
+			Id:      peerID,
 			StoreId: store.Id,
 		},
+	}
+	r.leader = peerID
+	return nil
+}
+
+func (r *regionInstance) leaderPeer() *metapb.Peer {
+	for _, p := range r.Peers {
+		if p.GetId() == r.leader {
+			return p
+		}
 	}
 	return nil
 }

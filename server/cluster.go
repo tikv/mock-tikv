@@ -15,43 +15,41 @@ package server
 
 import (
 	"bytes"
-	"encoding/base64"
+	"encoding/hex"
 	"fmt"
+	"sync"
 
+	"github.com/golang/protobuf/proto"
+	"github.com/pingcap/kvproto/pkg/metapb"
+	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const defaultTiKVVersion = "3.0.0"
 
-var emptyKey = []byte{}
+var (
+	emptyKey = []byte{}
+)
 
 type clusterInstance struct {
-	server    *Server
-	clusterID uint64
+	sync.RWMutex
+	server       *Server
+	clusterID    uint64
+	maxPeerCount uint32
+	safePoint    uint64
 
-	member  *memberInstance // we only support one leader pd at this time
-	regions []*regionInstance
-	stores  []*storeInstance
+	member     *memberInstance // we only support one leader pd at this time
+	regions    []*regionInstance
+	regionByID map[uint64]*regionInstance
+	stores     []*storeInstance
+	storeByID  map[uint64]*storeInstance
 
 	idAlloc uint64
-}
 
-func (s *Server) doGetCluster(id uint64) *clusterInstance {
-	if cluster, ok := s.clusters[id]; ok {
-		return cluster
-	}
-	return nil
-}
-
-func (s *Server) doGetClusters() []*clusterInstance {
-	result := make([]*clusterInstance, 0, len(s.clusters))
-	for _, instance := range s.clusters {
-		result = append(result, instance)
-	}
-	return result
-}
-
-func (s *Server) doDeleteCluster(id uint64) {
+	store *MVCCLevelDB
 }
 
 func validateRegionAndStore(regions []*regionInstance, stores []*storeInstance) error {
@@ -68,68 +66,66 @@ func validateRegionAndStore(regions []*regionInstance, stores []*storeInstance) 
 		} else {
 			if !bytes.Equal(region.StartKey, lastEndKey) {
 				return errors.New(fmt.Sprintf("Start key '%s' of region '%d' isn't the same as end key '%s' of last region '%d'",
-					base64.StdEncoding.EncodeToString(region.StartKey), region.Id,
-					base64.StdEncoding.EncodeToString(lastEndKey), lastRegion.Id,
+					hex.EncodeToString(region.StartKey), region.Id,
+					hex.EncodeToString(lastEndKey), lastRegion.Id,
 				))
 			}
 		}
 		if len(region.EndKey) > 0 && len(region.StartKey) > 0 && bytes.Compare(region.StartKey, region.EndKey) >= 0 {
 			return errors.New(fmt.Sprintf("Start key '%s' of region '%d' isn't the less than end key '%s'",
-				base64.StdEncoding.EncodeToString(region.StartKey), region.Id,
-				base64.StdEncoding.EncodeToString(region.EndKey),
+				hex.EncodeToString(region.StartKey), region.Id,
+				hex.EncodeToString(region.EndKey),
 			))
 		}
 
+		lastRegion = region
 		lastEndKey = region.EndKey
 	}
 	if len(lastEndKey) != 0 {
 		return errors.New(fmt.Sprintf("Last end key '%s' of region '%d' isn't empty",
-			base64.StdEncoding.EncodeToString(lastEndKey), lastRegion.Id,
+			hex.EncodeToString(lastEndKey), lastRegion.Id,
 		))
 	}
 	return nil
 }
 
-func (s *Server) doCreateCluster(regions []*regionInstance, stores []*storeInstance) (*clusterInstance, error) {
-	if len(regions) == 0 {
-		regions = []*regionInstance{
-			newRegionInstance(0, emptyKey, emptyKey),
-		}
-	}
-	if len(stores) == 0 {
-		stores = []*storeInstance{
-			newStoreInstance(defaultTiKVVersion),
-		}
-	}
-	if err := validateRegionAndStore(regions, stores); err != nil {
-		return nil, err
-	}
-	instance := &clusterInstance{
-		server:    s,
-		clusterID: s.allocID(),
-		member:    newMemberInstance(s),
-		regions:   regions,
-		stores:    stores,
-	}
-	if err := instance.start(s.address); err != nil {
-		return nil, err
-	}
-	return instance, nil
-}
-
 func (c *clusterInstance) startStores(address string) error {
 	for _, store := range c.stores {
-		if err := store.start(c.server, address); err != nil {
+		if err := store.start(c.server, c, address); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (c *clusterInstance) startRegions() error {
+func (c *clusterInstance) getStore(storeID uint64) (*metapb.Store, error) {
+	c.RLock()
+	defer c.RUnlock()
+	if storeID == 0 {
+		return nil, errors.New("invalid zero store id")
+	}
+	for _, store := range c.stores {
+		if store.Id == storeID {
+			return proto.Clone(&store.Store).(*metapb.Store), nil
+		}
+	}
+	return nil, errors.Errorf("invalid store ID %d, not found", storeID)
+}
+
+func (c *clusterInstance) getStores() []*metapb.Store {
+	c.RLock()
+	defer c.RUnlock()
+	stores := make([]*metapb.Store, len(c.stores))
+	for idx, store := range c.stores {
+		stores[idx] = proto.Clone(&store.Store).(*metapb.Store)
+	}
+	return stores
+}
+
+func (c *clusterInstance) initRegions() error {
 	numStores := len(c.stores)
 	for i, region := range c.regions {
-		if err := region.start(c.server, c.stores[i%numStores]); err != nil {
+		if err := region.init(c.server, c.stores[i%numStores]); err != nil {
 			return err
 		}
 	}
@@ -148,12 +144,102 @@ func (c *clusterInstance) start(address string) (err error) {
 	if err = c.startStores(address); err != nil {
 		return err
 	}
-	return c.startRegions()
+	if err = c.initRegions(); err != nil {
+		return err
+	}
+
+	if c.store, err = NewMVCCLevelDB(""); err != nil {
+		return err
+	}
+
+	return
 }
 
 func (c *clusterInstance) stopStores() {
+	for _, store := range c.stores {
+		store.stop()
+	}
 }
 
 func (c *clusterInstance) stop() {
+	c.Lock()
+	defer c.Unlock()
 	c.stopStores()
+	c.member.stop()
+}
+
+func (c *clusterInstance) validateRequest(header *pdpb.RequestHeader) error {
+	if header.GetClusterId() != c.clusterID {
+		return status.Errorf(codes.FailedPrecondition, "mismatch cluster id, need %d but got %d", c.clusterID, header.GetClusterId())
+	}
+	return nil
+}
+
+func (c *clusterInstance) getTS(count uint32) (physical, logical int64) {
+	return c.server.getTS(count)
+}
+
+func (c *clusterInstance) header() *pdpb.ResponseHeader {
+	return &pdpb.ResponseHeader{
+		ClusterId: c.clusterID,
+	}
+}
+
+func (c *clusterInstance) allocID() uint64 {
+	return c.server.allocID()
+}
+
+func (c *clusterInstance) getRegionByKey(key []byte) (*metapb.Region, *metapb.Peer) {
+	c.RLock()
+	defer c.RUnlock()
+	for _, r := range c.regions {
+		if regionContains(r.StartKey, r.EndKey, key) {
+			return proto.Clone(&r.Region).(*metapb.Region), proto.Clone(r.leaderPeer()).(*metapb.Peer)
+		}
+	}
+	return nil, nil
+}
+
+func (c *clusterInstance) getRegionByID(regionID uint64) (*metapb.Region, *metapb.Peer) {
+	c.RLock()
+	defer c.RUnlock()
+	for _, r := range c.regions {
+		if r.GetId() == regionID {
+			return proto.Clone(&r.Region).(*metapb.Region), proto.Clone(r.leaderPeer()).(*metapb.Peer)
+		}
+	}
+	return nil, nil
+}
+
+func (c *clusterInstance) getConfig() *metapb.Cluster {
+	c.RLock()
+	defer c.RUnlock()
+	return &metapb.Cluster{
+		Id:           c.clusterID,
+		MaxPeerCount: c.maxPeerCount,
+	}
+}
+
+func (c *clusterInstance) setConfig(config *metapb.Cluster) {
+	c.Lock()
+	defer c.Unlock()
+	c.maxPeerCount = config.MaxPeerCount
+}
+
+func (c *clusterInstance) getSafePoint() uint64 {
+	c.RLock()
+	defer c.RUnlock()
+	return c.safePoint
+}
+
+func (c *clusterInstance) updateSafePoint(safePoint uint64) {
+	c.Lock()
+	defer c.Unlock()
+	if safePoint > c.safePoint {
+		log.Infof("updated gc safe point to %d", safePoint)
+		c.safePoint = safePoint
+	} else if safePoint < c.safePoint {
+		log.Warnf("trying to update gc safe point from %d to %d", c.safePoint, safePoint)
+	}
+	return
 }

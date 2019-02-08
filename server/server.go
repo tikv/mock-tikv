@@ -19,6 +19,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -26,8 +27,19 @@ import (
 	"github.com/tikv/mock-tikv/server/api"
 )
 
+var tsMu = struct {
+	sync.Mutex
+	physicalTS int64
+	logicalTS  int64
+}{}
+
+type idAllocator interface {
+	allocID() uint64
+}
+
 // Server is the mock tikv server.
 type Server struct {
+	sync.RWMutex
 	// Configs and initial fields.
 	cfg *Config
 
@@ -37,6 +49,9 @@ type Server struct {
 
 	idAlloc  uint64
 	clusters map[uint64]*clusterInstance
+
+	tso       atomic.Value
+	tsoTicker *time.Ticker
 }
 
 // CreateServer creates the mock tikv server with given configuration.
@@ -67,6 +82,85 @@ func (s *Server) allocID() uint64 {
 	return atomic.AddUint64(&s.idAlloc, 1)
 }
 
-type idAllocator interface {
-	allocID() uint64
+func (s *Server) getTS(count uint32) (physical, logical int64) {
+	tsMu.Lock()
+	defer tsMu.Unlock()
+
+	ts := time.Now().UnixNano() / int64(time.Millisecond)
+	if tsMu.physicalTS >= ts {
+		tsMu.logicalTS++
+	} else {
+		tsMu.physicalTS = ts
+		tsMu.logicalTS = 0
+	}
+	return tsMu.physicalTS, tsMu.logicalTS
+}
+
+func (s *Server) doGetCluster(id uint64) *clusterInstance {
+	s.RLock()
+	defer s.RUnlock()
+	if cluster, ok := s.clusters[id]; ok {
+		return cluster
+	}
+	return nil
+}
+
+func (s *Server) doGetClusters() []*clusterInstance {
+	s.RLock()
+	defer s.RUnlock()
+	result := make([]*clusterInstance, 0, len(s.clusters))
+	for _, instance := range s.clusters {
+		result = append(result, instance)
+	}
+	return result
+}
+
+func (s *Server) doDeleteCluster(id uint64) {
+	s.Lock()
+	defer s.Unlock()
+	cluster, ok := s.clusters[id]
+	if !ok {
+		return
+	}
+	cluster.stop()
+	delete(s.clusters, id)
+}
+
+func (s *Server) doCreateCluster(regions []*regionInstance, stores []*storeInstance) (*clusterInstance, error) {
+	if len(regions) == 0 {
+		regions = []*regionInstance{
+			newRegionInstance(0, emptyKey, emptyKey),
+		}
+	}
+	if len(stores) == 0 {
+		stores = []*storeInstance{
+			newStoreInstance(defaultTiKVVersion),
+		}
+	}
+	if err := validateRegionAndStore(regions, stores); err != nil {
+		return nil, err
+	}
+	regionByID := make(map[uint64]*regionInstance)
+	for _, region := range regions {
+		regionByID[region.Id] = region
+	}
+	storeByID := make(map[uint64]*storeInstance)
+	for _, store := range stores {
+		storeByID[store.Id] = store
+	}
+	instance := &clusterInstance{
+		server:       s,
+		clusterID:    s.allocID(),
+		maxPeerCount: 3,
+		regions:      regions,
+		regionByID:   regionByID,
+		stores:       stores,
+		storeByID:    storeByID,
+	}
+	instance.member = newMemberInstance(s, instance)
+	if err := instance.start(s.address); err != nil {
+		return nil, err
+	}
+	s.clusters[instance.clusterID] = instance
+	return instance, nil
 }

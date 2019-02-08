@@ -18,11 +18,11 @@ type StoreState string
 
 const (
 	// StoreStateUp store is up and running
-	StoreStateUp = "Up"
+	StoreStateUp StoreState = "Up"
 	// StoreStateOffline store is offline
-	StoreStateOffline = "Offline"
+	StoreStateOffline StoreState = "Offline"
 	// StoreStateTombstone store is set to tombstone state
-	StoreStateTombstone = "Tombstone"
+	StoreStateTombstone StoreState = "Tombstone"
 )
 
 // Store contains information about a store
