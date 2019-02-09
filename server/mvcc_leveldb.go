@@ -25,8 +25,6 @@ import (
 	"github.com/pingcap/goleveldb/leveldb/storage"
 	"github.com/pingcap/goleveldb/leveldb/util"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
-	"github.com/pingcap/parser/terror"
-	"github.com/pingcap/tidb/util/codec"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -65,8 +63,8 @@ var ErrInvalidEncodedKey = errors.New("invalid encoded key")
 
 // mvccEncode returns the encoded key.
 func mvccEncode(key []byte, ver uint64) []byte {
-	b := codec.EncodeBytes(nil, key)
-	ret := codec.EncodeUintDesc(b, ver)
+	b := EncodeBytes(nil, key)
+	ret := EncodeUintDesc(b, ver)
 	return ret
 }
 
@@ -74,7 +72,7 @@ func mvccEncode(key []byte, ver uint64) []byte {
 // just returns the origin key.
 func mvccDecode(encodedKey []byte) ([]byte, uint64, error) {
 	// Skip DataPrefix
-	remainBytes, key, err := codec.DecodeBytes(encodedKey, nil)
+	remainBytes, key, err := DecodeBytes(encodedKey, nil)
 	if err != nil {
 		// should never happen
 		return nil, 0, errors.Trace(err)
@@ -84,7 +82,7 @@ func mvccDecode(encodedKey []byte) ([]byte, uint64, error) {
 		return key, 0, nil
 	}
 	var ver uint64
-	remainBytes, ver, err = codec.DecodeUintDesc(remainBytes)
+	remainBytes, ver, err = DecodeUintDesc(remainBytes)
 	if err != nil {
 		// should never happen
 		return nil, 0, errors.Trace(err)
@@ -421,7 +419,7 @@ func (mvcc *MVCCLevelDB) ReverseScan(startKey, endKey []byte, limit int, startTS
 	succ := iter.Last()
 	currKey, _, err := mvccDecode(iter.Key())
 	// TODO: return error.
-	terror.Log(errors.Trace(err))
+	logError(errors.Trace(err))
 	helper := reverseScanHelper{
 		startTS:  startTS,
 		isoLevel: isoLevel,
@@ -874,7 +872,7 @@ func (mvcc *MVCCLevelDB) BatchResolveLock(startKey, endKey []byte, txnInfos map[
 
 // DeleteRange implements the MVCCStore interface.
 func (mvcc *MVCCLevelDB) DeleteRange(startKey, endKey []byte) error {
-	return mvcc.doRawDeleteRange(codec.EncodeBytes(nil, startKey), codec.EncodeBytes(nil, endKey))
+	return mvcc.doRawDeleteRange(EncodeBytes(nil, startKey), EncodeBytes(nil, endKey))
 }
 
 // Close calls leveldb's Close to free resources.
@@ -890,7 +888,7 @@ func (mvcc *MVCCLevelDB) RawPut(key, value []byte) {
 	if value == nil {
 		value = []byte{}
 	}
-	terror.Log(mvcc.db.Put(key, value, nil))
+	logError(mvcc.db.Put(key, value, nil))
 }
 
 // RawBatchPut implements the RawKV interface
@@ -906,7 +904,7 @@ func (mvcc *MVCCLevelDB) RawBatchPut(keys, values [][]byte) {
 		}
 		batch.Put(key, value)
 	}
-	terror.Log(mvcc.db.Write(batch, nil))
+	logError(mvcc.db.Write(batch, nil))
 }
 
 // RawGet implements the RawKV interface.
@@ -916,7 +914,7 @@ func (mvcc *MVCCLevelDB) RawGet(key []byte) []byte {
 
 	ret, err := mvcc.db.Get(key, nil)
 	if err != nil && err != leveldb.ErrNotFound {
-		terror.Log(err)
+		logError(err)
 	}
 	return ret
 }
@@ -933,7 +931,7 @@ func (mvcc *MVCCLevelDB) RawBatchGet(keys [][]byte) []Pair {
 			if err == leveldb.ErrNotFound {
 				continue
 			}
-			terror.Log(err)
+			logError(err)
 		}
 		pairs = append(pairs, Pair{
 			Key:   key,
@@ -949,7 +947,7 @@ func (mvcc *MVCCLevelDB) RawDelete(key []byte) {
 	mvcc.mu.Lock()
 	defer mvcc.mu.Unlock()
 
-	terror.Log(mvcc.db.Delete(key, nil))
+	logError(mvcc.db.Delete(key, nil))
 }
 
 // RawBatchDelete implements the RawKV interface.
@@ -961,7 +959,7 @@ func (mvcc *MVCCLevelDB) RawBatchDelete(keys [][]byte) {
 	for _, key := range keys {
 		batch.Delete(key)
 	}
-	terror.Log(mvcc.db.Write(batch, nil))
+	logError(mvcc.db.Write(batch, nil))
 }
 
 // RawScan implements the RawKV interface.
@@ -990,7 +988,7 @@ func (mvcc *MVCCLevelDB) RawScan(startKey, endKey []byte, limit int) []Pair {
 
 // RawDeleteRange implements the RawKV interface.
 func (mvcc *MVCCLevelDB) RawDeleteRange(startKey, endKey []byte) {
-	terror.Log(mvcc.doRawDeleteRange(startKey, endKey))
+	logError(mvcc.doRawDeleteRange(startKey, endKey))
 }
 
 // doRawDeleteRange deletes all keys in a range and return the error if any.
@@ -1009,4 +1007,10 @@ func (mvcc *MVCCLevelDB) doRawDeleteRange(startKey, endKey []byte) error {
 	}
 
 	return mvcc.db.Write(batch, nil)
+}
+
+func logError(err error) {
+	if err != nil {
+		log.Error(errors.ErrorStack(err))
+	}
 }

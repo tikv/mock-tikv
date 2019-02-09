@@ -23,7 +23,6 @@ import (
 	"github.com/google/btree"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
-	"github.com/pingcap/tidb/util/codec"
 )
 
 type mvccValueType int
@@ -473,7 +472,7 @@ func NewMvccKey(key []byte) MvccKey {
 	if len(key) == 0 {
 		return nil
 	}
-	return codec.EncodeBytes(nil, key)
+	return EncodeBytes(nil, key)
 }
 
 // Raw decodes a MvccKey to original key.
@@ -481,7 +480,7 @@ func (key MvccKey) Raw() []byte {
 	if len(key) == 0 {
 		return nil
 	}
-	_, k, err := codec.DecodeBytes(key, nil)
+	_, k, err := DecodeBytes(key, nil)
 	if err != nil {
 		panic(err)
 	}
