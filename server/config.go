@@ -15,9 +15,6 @@ package server
 
 import (
 	"flag"
-
-	"github.com/pingcap/pd/pkg/logutil"
-	"github.com/pingcap/pd/pkg/metricutil"
 )
 
 const (
@@ -31,10 +28,7 @@ type Config struct {
 	ClientEndpoint string `toml:"client-endpoint" json:"client-endpoint"`
 
 	// Log related config.
-	Log logutil.LogConfig `toml:"log" json:"log"`
-
-	// Metric related config.
-	Metric metricutil.MetricConfig `toml:"metric" json:"metric"`
+	Log LogConfig `toml:"log" json:"log"`
 
 	configFile string
 }

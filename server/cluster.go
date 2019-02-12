@@ -52,9 +52,9 @@ type clusterInstance struct {
 	store *MVCCLevelDB
 }
 
-func validateRegionAndStore(regions []*regionInstance, stores []*storeInstance) error {
-	var lastEndKey []byte = nil
-	var lastRegion *regionInstance = nil
+func validateRegion(regions []*regionInstance) error {
+	var lastEndKey []byte
+	var lastRegion *regionInstance
 	for _, region := range regions {
 		if lastEndKey == nil {
 			if len(region.StartKey) != 0 {

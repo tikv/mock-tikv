@@ -21,9 +21,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/grpc-ecosystem/go-grpc-prometheus"
-	"github.com/pingcap/pd/pkg/logutil"
-	"github.com/pingcap/pd/pkg/metricutil"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/tikv/mock-tikv/server"
@@ -33,7 +30,7 @@ func main() {
 	cfg := server.NewConfig()
 	err := cfg.Parse(os.Args[1:])
 
-	defer logutil.LogPanic()
+	defer server.LogPanic()
 
 	switch errors.Cause(err) {
 	case nil:
@@ -43,14 +40,10 @@ func main() {
 		log.Fatalf("parse cmd flags error: %s\n", fmt.Sprintf("%+v", err))
 	}
 
-	err = logutil.InitLogger(&cfg.Log)
+	err = server.InitLogger(&cfg.Log)
 	if err != nil {
 		log.Fatalf("initialize logger error: %s\n", fmt.Sprintf("%+v", err))
 	}
-
-	grpc_prometheus.EnableHandlingTimeHistogram()
-
-	metricutil.Push(&cfg.Metric)
 
 	_, err = server.CreateServer(cfg)
 	if err != nil {

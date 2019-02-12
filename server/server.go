@@ -137,7 +137,7 @@ func (s *Server) doCreateCluster(regions []*regionInstance, stores []*storeInsta
 			newStoreInstance(defaultTiKVVersion),
 		}
 	}
-	if err := validateRegionAndStore(regions, stores); err != nil {
+	if err := validateRegion(regions); err != nil {
 		return nil, err
 	}
 	regionByID := make(map[uint64]*regionInstance)
