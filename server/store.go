@@ -18,6 +18,7 @@ import (
 	"context"
 	"io"
 	"net"
+	"strconv"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/pingcap/kvproto/pkg/coprocessor"
@@ -55,6 +56,11 @@ type storeInstance struct {
 
 	cluster *clusterInstance
 	server  *grpc.Server
+
+	// fail points
+	serverBusy       bool
+	rpcCommitResult  string
+	rpcCommitTimeout bool
 }
 
 func newStoreInstance(version string) *storeInstance {
@@ -65,14 +71,13 @@ func newStoreInstance(version string) *storeInstance {
 	}
 }
 
-func (s *storeInstance) start(idAlloc idAllocator, cluster *clusterInstance, address string) error {
+func (s *storeInstance) start(cluster *clusterInstance, address string) error {
 	listener, err := net.Listen("tcp", address+":0")
 	if err != nil {
 		return err
 	}
 	s.listener = listener
 	s.cluster = cluster
-	s.Id = idAlloc.allocID()
 	s.Address = listener.Addr().String()
 	s.State = metapb.StoreState_Up
 	s.server = grpc.NewServer()
@@ -234,6 +239,9 @@ func (s *storeInstance) checkRequestContext(ctx *kvrpcpb.Context) (*storeRequest
 }
 
 func (s *storeInstance) checkRequest(ctx *kvrpcpb.Context, size int) (*storeRequestContext, *errorpb.Error) {
+	if s.serverBusy {
+		return nil, &errorpb.Error{ServerIsBusy: &errorpb.ServerIsBusy{}}
+	}
 	reqCtx, regionErr := s.checkRequestContext(ctx)
 	if regionErr != nil {
 		return nil, regionErr
@@ -295,6 +303,14 @@ func (s *storeInstance) KvPrewrite(ctx context.Context, req *kvrpcpb.PrewriteReq
 }
 
 func (s *storeInstance) KvCommit(ctx context.Context, req *kvrpcpb.CommitRequest) (*kvrpcpb.CommitResponse, error) {
+	switch s.rpcCommitResult {
+	case "timeout":
+		return nil, errors.New("timeout")
+	case "notLeader":
+		return &kvrpcpb.CommitResponse{RegionError: &errorpb.Error{NotLeader: &errorpb.NotLeader{}}}, nil
+	case "keyError":
+		return &kvrpcpb.CommitResponse{Error: &kvrpcpb.KeyError{}}, nil
+	}
 	reqCtx, regionErr := s.checkRequest(req.GetContext(), req.Size())
 	if regionErr != nil {
 		return &kvrpcpb.CommitResponse{RegionError: regionErr}, nil
@@ -308,6 +324,8 @@ func (s *storeInstance) KvCommit(ctx context.Context, req *kvrpcpb.CommitRequest
 	err := reqCtx.store.Commit(req.GetKeys(), req.GetStartVersion(), req.GetCommitVersion())
 	if err != nil {
 		resp.Error = convertToKeyError(err)
+	} else if s.rpcCommitTimeout {
+		return nil, errUndetermined
 	}
 	return &resp, nil
 }
@@ -653,4 +671,54 @@ func (s *storeInstance) BatchCommands(stream tikvpb.Tikv_BatchCommandsServer) er
 			return errors.WithStack(err)
 		}
 	}
+}
+
+func (s *storeInstance) getFailPoints() map[string]interface{} {
+	return map[string]interface{}{
+		"server-busy":        s.serverBusy,
+		"rpc-commit-result":  s.rpcCommitResult,
+		"rpc-commit-timeout": s.rpcCommitTimeout,
+	}
+}
+
+func (s *storeInstance) updateFailPoint(failPoint, value string) (interface{}, error) {
+	switch failPoint {
+	case "server-busy":
+		if value == "" {
+			s.serverBusy = false
+		} else {
+			serverBusy, err := strconv.ParseBool(value)
+			if err != nil {
+				return nil, err
+			}
+			s.serverBusy = serverBusy
+		}
+		return s.serverBusy, nil
+	case "rpc-commit-result":
+		switch value {
+		case "timeout":
+			fallthrough
+		case "notLeader":
+			fallthrough
+		case "keyError":
+			fallthrough
+		case "":
+			s.rpcCommitResult = value
+		default:
+			return nil, errInvalidFailPointValue
+		}
+		return s.rpcCommitResult, nil
+	case "rpc-commit-timeout":
+		if value == "" {
+			s.rpcCommitTimeout = false
+		} else {
+			commitTimeout, err := strconv.ParseBool(value)
+			if err != nil {
+				return nil, err
+			}
+			s.rpcCommitTimeout = commitTimeout
+		}
+		return s.rpcCommitTimeout, nil
+	}
+	return nil, errFailPointNotFound
 }

@@ -1,4 +1,4 @@
-// Copyright 2017 PingCAP, Inc.
+// Copyright 2019 PingCAP, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ import (
 	"github.com/pingcap/goleveldb/leveldb/storage"
 	"github.com/pingcap/goleveldb/leveldb/util"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
-	log "github.com/sirupsen/logrus"
+	"github.com/pingcap/log"
 )
 
 // MVCCLevelDB implements the MVCCStore interface.
@@ -370,7 +370,7 @@ func (mvcc *MVCCLevelDB) Scan(startKey, endKey []byte, limit int, startTS uint64
 	iter, currKey, err := newScanIterator(mvcc.db, startKey, endKey)
 	defer iter.Release()
 	if err != nil {
-		log.Error("scan new iterator fail:", errors.ErrorStack(err))
+		log.S().Error("scan new iterator fail:", errors.ErrorStack(err))
 		return nil
 	}
 
@@ -394,7 +394,7 @@ func (mvcc *MVCCLevelDB) Scan(startKey, endKey []byte, limit int, startTS uint64
 		skip := skipDecoder{currKey}
 		ok, err = skip.Decode(iter)
 		if err != nil {
-			log.Error("seek to next key error:", errors.ErrorStack(err))
+			log.S().Error("seek to next key error:", errors.ErrorStack(err))
 			break
 		}
 		currKey = skip.currKey
@@ -449,7 +449,7 @@ func (mvcc *MVCCLevelDB) ReverseScan(startKey, endKey []byte, limit int, startTS
 			helper.entry.values = append(helper.entry.values, value)
 		}
 		if err != nil {
-			log.Error("Unmarshal fail:", errors.Trace(err))
+			log.S().Error("Unmarshal fail:", errors.Trace(err))
 			break
 		}
 		succ = iter.Prev()
@@ -1011,6 +1011,6 @@ func (mvcc *MVCCLevelDB) doRawDeleteRange(startKey, endKey []byte) error {
 
 func logError(err error) {
 	if err != nil {
-		log.Error(errors.ErrorStack(err))
+		log.S().Error(errors.ErrorStack(err))
 	}
 }

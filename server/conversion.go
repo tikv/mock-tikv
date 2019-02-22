@@ -15,10 +15,11 @@ package server
 
 import (
 	"github.com/pingcap/kvproto/pkg/metapb"
+	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/tikv/mock-tikv/server/api"
 )
 
-func convertMemberToAPI(member *memberInstance) []*api.Member {
+func convertMemberToAPI(member *pdpb.Member) []*api.Member {
 	return []*api.Member{
 		{
 			Name:       member.Name,
@@ -33,10 +34,10 @@ func convertClusterToAPI(instance *clusterInstance) *api.Cluster {
 		return nil
 	}
 	return &api.Cluster{
-		ID:      instance.clusterID,
-		Members: convertMemberToAPI(instance.member),
-		Regions: convertRegionsToAPI(instance.regions),
-		Stores:  convertStoresToAPI(instance.stores),
+		ID:      instance.getID(),
+		Members: convertMemberToAPI(instance.getMember()),
+		Regions: convertRegionsToAPI(instance.getRegions()),
+		Stores:  convertStoresToAPI(instance.getStores()),
 	}
 }
 
@@ -74,7 +75,7 @@ func convertAPIToRegions(regions []*api.Region) []*regionInstance {
 	return result
 }
 
-func convertRegionToAPI(region *regionInstance) *api.Region {
+func convertRegionToAPI(region *metapb.Region) *api.Region {
 	return &api.Region{
 		ID:          region.Id,
 		StartKey:    region.StartKey,
@@ -84,7 +85,7 @@ func convertRegionToAPI(region *regionInstance) *api.Region {
 	}
 }
 
-func convertRegionsToAPI(regions []*regionInstance) []*api.Region {
+func convertRegionsToAPI(regions []*metapb.Region) []*api.Region {
 	result := make([]*api.Region, len(regions))
 	for i, region := range regions {
 		result[i] = convertRegionToAPI(region)
@@ -117,7 +118,7 @@ func convertStoreStateToAPI(state metapb.StoreState) api.StoreState {
 	}
 }
 
-func convertStoreToAPI(store *storeInstance) *api.Store {
+func convertStoreToAPI(store *metapb.Store) *api.Store {
 	return &api.Store{
 		ID:      store.Id,
 		Address: store.Address,
@@ -126,7 +127,7 @@ func convertStoreToAPI(store *storeInstance) *api.Store {
 	}
 }
 
-func convertStoresToAPI(stores []*storeInstance) []*api.Store {
+func convertStoresToAPI(stores []*metapb.Store) []*api.Store {
 	result := make([]*api.Store, len(stores))
 	for i, store := range stores {
 		result[i] = convertStoreToAPI(store)

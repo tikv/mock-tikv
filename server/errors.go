@@ -1,4 +1,4 @@
-// Copyright 2016 PingCAP, Inc.
+// Copyright 2019 PingCAP, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,7 +13,20 @@
 
 package server
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/pkg/errors"
+)
+
+var (
+	errUndetermined          = errors.New("execution result undetermined")
+	errClusterNotFound       = errors.New("cluster not found")
+	errStoreNotFound         = errors.New("store not found")
+	errRegionNotFound        = errors.New("region not found")
+	errFailPointNotFound     = errors.New("fail point not found")
+	errInvalidFailPointValue = errors.New("invalid fail point value")
+)
 
 // ErrLocked is returned when trying to Read/Write on a locked key. Client should
 // backoff or cleanup the lock then retry.

@@ -1,4 +1,4 @@
-// Copyright 2016 PingCAP, Inc.
+// Copyright 2019 PingCAP, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,6 +28,12 @@ type Server interface {
 	GetClusters() []*Cluster
 	DeleteCluster(id uint64)
 	CreateCluster(cluster *Cluster) (*Cluster, error)
+	GetClusterStore(clusterID, storeID uint64) (*Store, error)
+	GetClusterStores(clusterID uint64) ([]*Store, error)
+	GetStoreFailPoints(clusterID, storeID uint64) (map[string]interface{}, error)
+	GetStoreFailPoint(clusterID, storeID uint64, failPoint string) (interface{}, error)
+	UpdateStoreFailPoint(clusterID, storeID uint64, failPoint, value string) (interface{}, error)
+	DeleteStoreFailPoint(clusterID, storeID uint64, failPoint string) (interface{}, error)
 }
 
 // NewHandler create s a HTTP handler for API

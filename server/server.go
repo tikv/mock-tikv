@@ -23,7 +23,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	"github.com/pingcap/log"
 	"github.com/tikv/mock-tikv/server/api"
 )
 
@@ -56,7 +56,7 @@ type Server struct {
 
 // CreateServer creates the mock tikv server with given configuration.
 func CreateServer(cfg *Config) (s *Server, err error) {
-	log.Infof("Mock TiKV config - %v", cfg)
+	log.S().Infof("Mock TiKV config - %v", cfg)
 	rand.Seed(time.Now().UnixNano())
 	var listener net.Listener
 	if listener, err = net.Listen("tcp", cfg.ClientEndpoint); err != nil {
@@ -140,17 +140,20 @@ func (s *Server) doCreateCluster(regions []*regionInstance, stores []*storeInsta
 	if err := validateRegion(regions); err != nil {
 		return nil, err
 	}
+	clusterID := s.allocID()
 	regionByID := make(map[uint64]*regionInstance)
 	for _, region := range regions {
+		region.Id = s.allocID()
 		regionByID[region.Id] = region
 	}
 	storeByID := make(map[uint64]*storeInstance)
 	for _, store := range stores {
+		store.Id = s.allocID()
 		storeByID[store.Id] = store
 	}
 	instance := &clusterInstance{
 		server:       s,
-		clusterID:    s.allocID(),
+		clusterID:    clusterID,
 		maxPeerCount: 3,
 		regions:      regions,
 		regionByID:   regionByID,

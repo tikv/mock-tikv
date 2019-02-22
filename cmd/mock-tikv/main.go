@@ -21,8 +21,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/pingcap/log"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 	"github.com/tikv/mock-tikv/server"
 )
 
@@ -37,17 +37,17 @@ func main() {
 	case flag.ErrHelp:
 		os.Exit(0)
 	default:
-		log.Fatalf("parse cmd flags error: %s\n", fmt.Sprintf("%+v", err))
+		log.S().Fatalf("parse cmd flags error: %s\n", fmt.Sprintf("%+v", err))
 	}
 
 	err = server.InitLogger(&cfg.Log)
 	if err != nil {
-		log.Fatalf("initialize logger error: %s\n", fmt.Sprintf("%+v", err))
+		log.S().Fatalf("initialize logger error: %s\n", fmt.Sprintf("%+v", err))
 	}
 
 	_, err = server.CreateServer(cfg)
 	if err != nil {
-		log.Fatalf("create server failed: %v", fmt.Sprintf("%+v", err))
+		log.S().Fatalf("create server failed: %v", fmt.Sprintf("%+v", err))
 	}
 
 	sc := make(chan os.Signal, 1)
@@ -65,7 +65,7 @@ func main() {
 	}()
 
 	<-ctx.Done()
-	log.Infof("Got signal [%d] to exit.", sig)
+	log.S().Infof("Got signal [%d] to exit.", sig)
 
 	switch sig {
 	case syscall.SIGTERM:

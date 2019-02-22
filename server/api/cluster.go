@@ -94,3 +94,11 @@ func (h *clusterHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	h.DeleteCluster(clusterID)
 	h.r.JSON(w, http.StatusOK, nil)
 }
+
+func parseID(r *http.Request, name string) (uint64, error) {
+	return strconv.ParseUint(mux.Vars(r)[name], 10, 64)
+}
+
+func parseClusterID(r *http.Request) (uint64, error) {
+	return parseID(r, "cluster_id")
+}

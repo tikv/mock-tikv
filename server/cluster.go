@@ -22,8 +22,8 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
+	"github.com/pingcap/log"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -91,7 +91,7 @@ func validateRegion(regions []*regionInstance) error {
 
 func (c *clusterInstance) startStores(address string) error {
 	for _, store := range c.stores {
-		if err := store.start(c.server, c, address); err != nil {
+		if err := store.start(c, address); err != nil {
 			return err
 		}
 	}
@@ -125,7 +125,7 @@ func (c *clusterInstance) getStores() []*metapb.Store {
 func (c *clusterInstance) initRegions() error {
 	numStores := len(c.stores)
 	for i, region := range c.regions {
-		if err := region.init(c.server, c.stores[i%numStores]); err != nil {
+		if err := region.init(c, c.stores[i%numStores]); err != nil {
 			return err
 		}
 	}
@@ -236,10 +236,52 @@ func (c *clusterInstance) updateSafePoint(safePoint uint64) {
 	c.Lock()
 	defer c.Unlock()
 	if safePoint > c.safePoint {
-		log.Infof("updated gc safe point to %d", safePoint)
+		log.S().Infof("updated gc safe point to %d", safePoint)
 		c.safePoint = safePoint
 	} else if safePoint < c.safePoint {
-		log.Warnf("trying to update gc safe point from %d to %d", c.safePoint, safePoint)
+		log.S().Warnf("trying to update gc safe point from %d to %d", c.safePoint, safePoint)
 	}
 	return
+}
+
+func (c *clusterInstance) getID() uint64 {
+	c.RLock()
+	defer c.RUnlock()
+	return c.clusterID
+}
+
+func (c *clusterInstance) getMember() *pdpb.Member {
+	c.RLock()
+	defer c.RUnlock()
+	return proto.Clone(&c.member.Member).(*pdpb.Member)
+}
+
+func (c *clusterInstance) getRegions() []*metapb.Region {
+	c.RLock()
+	defer c.RUnlock()
+	regions := make([]*metapb.Region, len(c.regions))
+	for idx, region := range c.regions {
+		regions[idx] = proto.Clone(&region.Region).(*metapb.Region)
+	}
+	return regions
+}
+
+func (c *clusterInstance) getStoreFailPoints(storeID uint64) (map[string]interface{}, error) {
+	c.RLock()
+	defer c.RUnlock()
+	store, ok := c.storeByID[storeID]
+	if !ok {
+		return nil, errStoreNotFound
+	}
+	return store.getFailPoints(), nil
+}
+
+func (c *clusterInstance) updateStoreFailPoint(storeID uint64, failPoint, value string) (interface{}, error) {
+	c.Lock()
+	defer c.Unlock()
+	store, ok := c.storeByID[storeID]
+	if !ok {
+		return nil, errStoreNotFound
+	}
+	return store.updateFailPoint(failPoint, value)
 }

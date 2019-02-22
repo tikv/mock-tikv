@@ -15,6 +15,8 @@ package server
 
 import (
 	"flag"
+
+	"github.com/pingcap/log"
 )
 
 const (
@@ -28,7 +30,7 @@ type Config struct {
 	ClientEndpoint string `toml:"client-endpoint" json:"client-endpoint"`
 
 	// Log related config.
-	Log LogConfig `toml:"log" json:"log"`
+	Log log.Config `toml:"log" json:"log"`
 
 	configFile string
 }

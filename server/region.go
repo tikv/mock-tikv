@@ -34,7 +34,6 @@ func newRegionInstance(id uint64, startKey, endKey []byte) *regionInstance {
 }
 
 func (r *regionInstance) init(idAlloc idAllocator, store *storeInstance) error {
-	r.Id = idAlloc.allocID()
 	r.RegionEpoch = &metapb.RegionEpoch{
 		ConfVer: idAlloc.allocID(),
 		Version: idAlloc.allocID(),

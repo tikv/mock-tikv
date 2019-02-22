@@ -26,9 +26,17 @@ func createRouter(prefix string, server Server) *mux.Router {
 	router := mux.NewRouter().PathPrefix(prefix).Subrouter()
 
 	clusterHandler := newClusterHandler(server, rd)
-	router.HandleFunc("/api/v1/cluster", clusterHandler.List).Methods("GET")
-	router.HandleFunc("/api/v1/cluster", clusterHandler.Post).Methods("POST")
-	router.HandleFunc("/api/v1/cluster/{cluster_id}", clusterHandler.Get).Methods("GET")
-	router.HandleFunc("/api/v1/cluster/{cluster_id}", clusterHandler.Delete).Methods("DELETE")
+	router.HandleFunc("/api/v1/clusters", clusterHandler.List).Methods("GET")
+	router.HandleFunc("/api/v1/clusters", clusterHandler.Post).Methods("POST")
+	router.HandleFunc("/api/v1/clusters/{cluster_id}", clusterHandler.Get).Methods("GET")
+	router.HandleFunc("/api/v1/clusters/{cluster_id}", clusterHandler.Delete).Methods("DELETE")
+
+	storeHandler := newStoreHandler(server, rd)
+	router.HandleFunc("/api/v1/clusters/{cluster_id}/stores", storeHandler.List).Methods("GET")
+	router.HandleFunc("/api/v1/clusters/{cluster_id}/stores/{store_id}", storeHandler.Get).Methods("GET")
+	router.HandleFunc("/api/v1/clusters/{cluster_id}/stores/{store_id}/failpoints", storeHandler.ListFailPoints).Methods("GET")
+	router.HandleFunc("/api/v1/clusters/{cluster_id}/stores/{store_id}/failpoints/{failpoint}", storeHandler.UpdateFailPoint).Methods("POST", "PUT")
+	router.HandleFunc("/api/v1/clusters/{cluster_id}/stores/{store_id}/failpoints/{failpoint}", storeHandler.GetFailPoint).Methods("GET")
+	router.HandleFunc("/api/v1/clusters/{cluster_id}/stores/{store_id}/failpoints/{failpoint}", storeHandler.DeleteFailPoint).Methods("DELETE")
 	return router
 }
