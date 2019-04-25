@@ -52,7 +52,7 @@ func (m *memberInstance) start(address string) error {
 		return err
 	}
 	m.listener = listener
-	m.ClientUrls = []string{listener.Addr().String()}
+	m.ClientUrls = []string{"http://" + listener.Addr().String()}
 	m.server = grpc.NewServer()
 	pdpb.RegisterPDServer(m.server, m)
 	go m.server.Serve(listener)
