@@ -16,6 +16,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"github.com/pingcap/failpoint"
 	"io"
 	"net"
 	"strconv"
@@ -31,6 +32,10 @@ import (
 )
 
 const requestMaxSize = 8 * 1024 * 1024
+
+const (
+	serverBusyFailPoint = "server-busy"
+)
 
 type storeRequestContext struct {
 	store *MVCCLevelDB
@@ -57,8 +62,8 @@ type storeInstance struct {
 	cluster *clusterInstance
 	server  *grpc.Server
 
-	// fail points
-	serverBusy       bool
+	ctx context.Context
+
 	rpcCommitResult  string
 	rpcCommitTimeout bool
 }
@@ -239,9 +244,9 @@ func (s *storeInstance) checkRequestContext(ctx *kvrpcpb.Context) (*storeRequest
 }
 
 func (s *storeInstance) checkRequest(ctx *kvrpcpb.Context, size int) (*storeRequestContext, *errorpb.Error) {
-	if s.serverBusy {
-		return nil, &errorpb.Error{ServerIsBusy: &errorpb.ServerIsBusy{}}
-	}
+	failpoint.InjectContext(s.ctx, serverBusyFailPoint, func() {
+		failpoint.Return(nil, &errorpb.Error{ServerIsBusy: &errorpb.ServerIsBusy{}})
+	})
 	reqCtx, regionErr := s.checkRequestContext(ctx)
 	if regionErr != nil {
 		return nil, regionErr
@@ -675,7 +680,6 @@ func (s *storeInstance) BatchCommands(stream tikvpb.Tikv_BatchCommandsServer) er
 
 func (s *storeInstance) getFailPoints() map[string]interface{} {
 	return map[string]interface{}{
-		"server-busy":        s.serverBusy,
 		"rpc-commit-result":  s.rpcCommitResult,
 		"rpc-commit-timeout": s.rpcCommitTimeout,
 	}
@@ -683,17 +687,15 @@ func (s *storeInstance) getFailPoints() map[string]interface{} {
 
 func (s *storeInstance) updateFailPoint(failPoint, value string) (interface{}, error) {
 	switch failPoint {
-	case "server-busy":
-		if value == "" {
-			s.serverBusy = false
-		} else {
-			serverBusy, err := strconv.ParseBool(value)
-			if err != nil {
-				return nil, err
-			}
-			s.serverBusy = serverBusy
+	case serverBusyFailPoint:
+		s.ctx = failpoint.WithHook(s.ctx, func(ctx context.Context, fpname string) bool {
+			return fpname == serverBusyFailPoint
+		})
+		println("value: " + value)
+		if err := failpoint.Enable(serverBusyFailPoint, value); err != nil {
+			return nil, err
 		}
-		return s.serverBusy, nil
+		return nil, nil
 	case "rpc-commit-result":
 		switch value {
 		case "timeout":

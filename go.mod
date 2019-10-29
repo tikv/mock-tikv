@@ -1,7 +1,6 @@
 module github.com/tikv/mock-tikv
 
 require (
-	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/eknkc/amber v0.0.0-20171010120322-cdade1c07385 // indirect
 	github.com/gogo/protobuf v1.2.0 // indirect
 	github.com/golang/protobuf v1.2.0
@@ -13,6 +12,7 @@ require (
 	github.com/onsi/gomega v1.4.3 // indirect
 	github.com/pingcap/check v0.0.0-20190102082844-67f458068fc8
 	github.com/pingcap/errors v0.11.0
+	github.com/pingcap/failpoint v0.0.0-20190708053854-e7b1061e6e81
 	github.com/pingcap/goleveldb v0.0.0-20171020122428-b9ff6c35079e
 	github.com/pingcap/kvproto v0.0.0-20190201122506-f9b9e7d362c7
 	github.com/pingcap/log v0.0.0-20190214045112-b37da76f67a7
@@ -26,3 +26,5 @@ require (
 	google.golang.org/grpc v1.18.0
 	gopkg.in/check.v1 v1.0.0-20180628173108-788fd7840127 // indirect
 )
+
+go 1.13
