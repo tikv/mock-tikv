@@ -689,10 +689,9 @@ func (s *storeInstance) updateFailPoint(failPoint, value string) (interface{}, e
 	switch failPoint {
 	case serverBusyFailPoint:
 		s.ctx = failpoint.WithHook(s.ctx, func(ctx context.Context, fpname string) bool {
-			return fpname == serverBusyFailPoint
+			return fpname == "github.com/tikv/mock-tikv/server/" + serverBusyFailPoint
 		})
-		println("value: " + value)
-		if err := failpoint.Enable(serverBusyFailPoint, value); err != nil {
+		if err := failpoint.Enable("github.com/tikv/mock-tikv/server/" + serverBusyFailPoint, value); err != nil {
 			return nil, err
 		}
 		return nil, nil
