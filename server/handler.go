@@ -99,5 +99,9 @@ func (s *Server) UpdateStoreFailPoint(clusterID, storeID uint64, failPoint, valu
 
 // DeleteStoreFailPoint Disable a particular fail point
 func (s *Server) DeleteStoreFailPoint(clusterID, storeID uint64, failPoint string) (interface{}, error) {
-	return s.UpdateStoreFailPoint(clusterID, storeID, failPoint, "")
+	cluster := s.doGetCluster(clusterID)
+	if cluster == nil {
+		return nil, errClusterNotFound
+	}
+	return cluster.deleteStoreFailPoint(storeID, failPoint)
 }

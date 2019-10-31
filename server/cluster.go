@@ -285,3 +285,13 @@ func (c *clusterInstance) updateStoreFailPoint(storeID uint64, failPoint, value 
 	}
 	return store.updateFailPoint(failPoint, value)
 }
+
+func (c *clusterInstance) deleteStoreFailPoint(storeID uint64, failPoint string) (interface{}, error) {
+	c.Lock()
+	defer c.Unlock()
+	store, ok := c.storeByID[storeID]
+	if !ok {
+		return nil, errStoreNotFound
+	}
+	return nil, store.deleteFailPoint(failPoint)
+}
