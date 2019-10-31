@@ -685,13 +685,23 @@ func (s *storeInstance) getFailPoints() map[string]interface{} {
 	}
 }
 
+func (s *storeInstance) deleteFailPoint(failPoint string) error {
+	switch failPoint {
+	case serverBusyFailPoint:
+		if err := failpoint.Disable("github.com/tikv/mock-tikv/server/" + serverBusyFailPoint); err != nil {
+			return err
+		}
+	}
+	return errFailPointNotFound
+}
+
 func (s *storeInstance) updateFailPoint(failPoint, value string) (interface{}, error) {
 	switch failPoint {
 	case serverBusyFailPoint:
 		s.ctx = failpoint.WithHook(s.ctx, func(ctx context.Context, fpname string) bool {
-			return fpname == "github.com/tikv/mock-tikv/server/" + serverBusyFailPoint
+			return fpname == "github.com/tikv/mock-tikv/server/"+serverBusyFailPoint
 		})
-		if err := failpoint.Enable("github.com/tikv/mock-tikv/server/" + serverBusyFailPoint, value); err != nil {
+		if err := failpoint.Enable("github.com/tikv/mock-tikv/server/"+serverBusyFailPoint, value); err != nil {
 			return nil, err
 		}
 		return nil, nil
