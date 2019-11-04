@@ -189,6 +189,16 @@ func (c *clusterInstance) allocID() uint64 {
 	return c.server.allocID()
 }
 
+func (c *clusterInstance) allocIDs(length int) []uint64 {
+	ids := make([]uint64, 0, length)
+	i := 0
+	for i < length {
+		ids = append(ids, c.allocID())
+		i++
+	}
+	return ids
+}
+
 func (c *clusterInstance) getRegionByKey(key []byte) (*metapb.Region, *metapb.Peer) {
 	c.RLock()
 	defer c.RUnlock()
@@ -294,4 +304,27 @@ func (c *clusterInstance) deleteStoreFailPoint(storeID uint64, failPoint string)
 		return nil, errStoreNotFound
 	}
 	return nil, store.deleteFailPoint(failPoint)
+}
+
+func (c *clusterInstance) SplitRaw(oldRegionID, newRegionID uint64, splitKey []byte, newPeerIDs []uint64, newLeaderPeerID uint64) (*metapb.Region, *metapb.Region, error) {
+	c.Lock()
+	defer c.Unlock()
+	originRegion := c.regionByID[oldRegionID]
+	if originRegion == nil {
+		return nil, nil, errRegionNotFound
+	}
+	newRegion := newRegionInstance(newRegionID, splitKey, originRegion.EndKey)
+	newRegion.RegionEpoch = &metapb.RegionEpoch{
+		ConfVer: c.allocID(),
+		Version: c.allocID(),
+	}
+	originRegion.RegionEpoch.Version++
+	originRegion.EndKey = splitKey
+	for i, peer := range originRegion.Peers {
+		newRegion.Peers = append(newRegion.Peers, &metapb.Peer{Id: newPeerIDs[i], StoreId: peer.StoreId})
+	}
+	newRegion.leader = newLeaderPeerID
+	c.regionByID[newRegionID] = newRegion
+	c.regions = append(c.regions, newRegion)
+	return &originRegion.Region, &newRegion.Region, nil
 }
