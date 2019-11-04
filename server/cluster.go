@@ -191,10 +191,8 @@ func (c *clusterInstance) allocID() uint64 {
 
 func (c *clusterInstance) allocIDs(length int) []uint64 {
 	ids := make([]uint64, 0, length)
-	i := 0
-	for i < length {
+	for i := 0; i < length; i++ {
 		ids = append(ids, c.allocID())
-		i++
 	}
 	return ids
 }
@@ -315,8 +313,8 @@ func (c *clusterInstance) SplitRaw(oldRegionID, newRegionID uint64, splitKey []b
 	}
 	newRegion := newRegionInstance(newRegionID, splitKey, originRegion.EndKey)
 	newRegion.RegionEpoch = &metapb.RegionEpoch{
-		ConfVer: c.allocID(),
-		Version: c.allocID(),
+		ConfVer: originRegion.RegionEpoch.ConfVer,
+		Version: originRegion.RegionEpoch.Version + 1,
 	}
 	originRegion.RegionEpoch.Version++
 	originRegion.EndKey = splitKey
