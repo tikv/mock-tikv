@@ -16,7 +16,6 @@ package server
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"github.com/pingcap/failpoint"
 	"io"
 	"net"
@@ -263,7 +262,6 @@ func (s *storeInstance) checkRequest(ctx *kvrpcpb.Context, size int) (*storeRequ
 func (s *storeInstance) KvGet(ctx context.Context, req *kvrpcpb.GetRequest) (*kvrpcpb.GetResponse, error) {
 	reqCtx, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
 	if ioErr != nil {
-		fmt.Println("ioErr")
 		return nil, ioErr
 	}
 	if regionErr != nil {
