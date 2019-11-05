@@ -588,11 +588,12 @@ func (s *storeInstance) SplitRegion(ctx context.Context, req *kvrpcpb.SplitRegio
 	if bytes.Equal(region.GetStartKey(), key) {
 		return &kvrpcpb.SplitRegionResponse{}, nil
 	}
-	/* TODO
-	newRegionID, newPeerIDs := h.cluster.AllocID(), h.cluster.AllocIDs(len(region.Peers))
-	h.cluster.SplitRaw(region.GetId(), newRegionID, key, newPeerIDs, newPeerIDs[0])
-	*/
-	return nil, nil
+	newRegionID, newPeerIDs := s.cluster.allocID(), s.cluster.allocIDs(len(region.Peers))
+	left, right, err := s.cluster.SplitRaw(region.GetId(), newRegionID, key, newPeerIDs, newPeerIDs[0])
+	return &kvrpcpb.SplitRegionResponse{
+		Left:  left,
+		Right: right,
+	}, err
 }
 
 // transaction debugger commands.
