@@ -16,6 +16,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"github.com/pingcap/failpoint"
 	"io"
 	"net"
@@ -35,6 +36,7 @@ const requestMaxSize = 8 * 1024 * 1024
 
 const (
 	serverBusyFailPoint = "server-busy"
+	IOFailPoint         = "io-timeout"
 )
 
 type storeRequestContext struct {
@@ -243,20 +245,27 @@ func (s *storeInstance) checkRequestContext(ctx *kvrpcpb.Context) (*storeRequest
 	}, nil
 }
 
-func (s *storeInstance) checkRequest(ctx *kvrpcpb.Context, size int) (*storeRequestContext, *errorpb.Error) {
+func (s *storeInstance) checkRequest(ctx *kvrpcpb.Context, size int) (*storeRequestContext, *errorpb.Error, error) {
 	failpoint.InjectContext(s.ctx, serverBusyFailPoint, func() {
-		failpoint.Return(nil, &errorpb.Error{ServerIsBusy: &errorpb.ServerIsBusy{}})
+		failpoint.Return(nil, &errorpb.Error{ServerIsBusy: &errorpb.ServerIsBusy{}}, nil)
+	})
+	failpoint.InjectContext(s.ctx, IOFailPoint, func() {
+		failpoint.Return(nil, nil, errUndetermined)
 	})
 	reqCtx, regionErr := s.checkRequestContext(ctx)
 	if regionErr != nil {
-		return nil, regionErr
+		return nil, regionErr, nil
 	}
-	return reqCtx, s.checkRequestSize(size)
+	return reqCtx, s.checkRequestSize(size), nil
 }
 
 // KV commands with mvcc/txn supported.
 func (s *storeInstance) KvGet(ctx context.Context, req *kvrpcpb.GetRequest) (*kvrpcpb.GetResponse, error) {
-	reqCtx, regionErr := s.checkRequest(req.GetContext(), req.Size())
+	reqCtx, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
+	if ioErr != nil {
+		fmt.Println("ioErr")
+		return nil, ioErr
+	}
 	if regionErr != nil {
 		return &kvrpcpb.GetResponse{RegionError: regionErr}, nil
 	}
@@ -272,7 +281,10 @@ func (s *storeInstance) KvGet(ctx context.Context, req *kvrpcpb.GetRequest) (*kv
 }
 
 func (s *storeInstance) KvScan(ctx context.Context, req *kvrpcpb.ScanRequest) (*kvrpcpb.ScanResponse, error) {
-	reqCtx, regionErr := s.checkRequest(req.GetContext(), req.Size())
+	reqCtx, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
+	if ioErr != nil {
+		return nil, ioErr
+	}
 	if regionErr != nil {
 		return &kvrpcpb.ScanResponse{RegionError: regionErr}, nil
 	}
@@ -292,7 +304,10 @@ func (s *storeInstance) KvScan(ctx context.Context, req *kvrpcpb.ScanRequest) (*
 }
 
 func (s *storeInstance) KvPrewrite(ctx context.Context, req *kvrpcpb.PrewriteRequest) (*kvrpcpb.PrewriteResponse, error) {
-	reqCtx, regionErr := s.checkRequest(req.GetContext(), req.Size())
+	reqCtx, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
+	if ioErr != nil {
+		return nil, ioErr
+	}
 	if regionErr != nil {
 		return &kvrpcpb.PrewriteResponse{RegionError: regionErr}, nil
 	}
@@ -316,7 +331,10 @@ func (s *storeInstance) KvCommit(ctx context.Context, req *kvrpcpb.CommitRequest
 	case "keyError":
 		return &kvrpcpb.CommitResponse{Error: &kvrpcpb.KeyError{}}, nil
 	}
-	reqCtx, regionErr := s.checkRequest(req.GetContext(), req.Size())
+	reqCtx, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
+	if ioErr != nil {
+		return nil, ioErr
+	}
 	if regionErr != nil {
 		return &kvrpcpb.CommitResponse{RegionError: regionErr}, nil
 	}
@@ -340,7 +358,10 @@ func (s *storeInstance) KvImport(ctx context.Context, req *kvrpcpb.ImportRequest
 }
 
 func (s *storeInstance) KvCleanup(ctx context.Context, req *kvrpcpb.CleanupRequest) (*kvrpcpb.CleanupResponse, error) {
-	reqCtx, regionErr := s.checkRequest(req.GetContext(), req.Size())
+	reqCtx, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
+	if ioErr != nil {
+		return nil, ioErr
+	}
 	if regionErr != nil {
 		return &kvrpcpb.CleanupResponse{RegionError: regionErr}, nil
 	}
@@ -360,7 +381,10 @@ func (s *storeInstance) KvCleanup(ctx context.Context, req *kvrpcpb.CleanupReque
 }
 
 func (s *storeInstance) KvBatchGet(ctx context.Context, req *kvrpcpb.BatchGetRequest) (*kvrpcpb.BatchGetResponse, error) {
-	reqCtx, regionErr := s.checkRequest(req.GetContext(), req.Size())
+	reqCtx, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
+	if ioErr != nil {
+		return nil, ioErr
+	}
 	if regionErr != nil {
 		return &kvrpcpb.BatchGetResponse{RegionError: regionErr}, nil
 	}
@@ -376,7 +400,10 @@ func (s *storeInstance) KvBatchGet(ctx context.Context, req *kvrpcpb.BatchGetReq
 }
 
 func (s *storeInstance) KvBatchRollback(ctx context.Context, req *kvrpcpb.BatchRollbackRequest) (*kvrpcpb.BatchRollbackResponse, error) {
-	reqCtx, regionErr := s.checkRequest(req.GetContext(), req.Size())
+	reqCtx, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
+	if ioErr != nil {
+		return nil, ioErr
+	}
 	if regionErr != nil {
 		return &kvrpcpb.BatchRollbackResponse{RegionError: regionErr}, nil
 	}
@@ -390,7 +417,10 @@ func (s *storeInstance) KvBatchRollback(ctx context.Context, req *kvrpcpb.BatchR
 }
 
 func (s *storeInstance) KvScanLock(ctx context.Context, req *kvrpcpb.ScanLockRequest) (*kvrpcpb.ScanLockResponse, error) {
-	reqCtx, regionErr := s.checkRequest(req.GetContext(), req.Size())
+	reqCtx, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
+	if ioErr != nil {
+		return nil, ioErr
+	}
 	if regionErr != nil {
 		return &kvrpcpb.ScanLockResponse{RegionError: regionErr}, nil
 	}
@@ -408,7 +438,10 @@ func (s *storeInstance) KvScanLock(ctx context.Context, req *kvrpcpb.ScanLockReq
 }
 
 func (s *storeInstance) KvResolveLock(ctx context.Context, req *kvrpcpb.ResolveLockRequest) (*kvrpcpb.ResolveLockResponse, error) {
-	reqCtx, regionErr := s.checkRequest(req.GetContext(), req.Size())
+	reqCtx, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
+	if ioErr != nil {
+		return nil, ioErr
+	}
 	if regionErr != nil {
 		return &kvrpcpb.ResolveLockResponse{RegionError: regionErr}, nil
 	}
@@ -424,7 +457,10 @@ func (s *storeInstance) KvResolveLock(ctx context.Context, req *kvrpcpb.ResolveL
 }
 
 func (s *storeInstance) KvGC(ctx context.Context, req *kvrpcpb.GCRequest) (*kvrpcpb.GCResponse, error) {
-	_, regionErr := s.checkRequest(req.GetContext(), req.Size())
+	_, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
+	if ioErr != nil {
+		return nil, ioErr
+	}
 	if regionErr != nil {
 		return &kvrpcpb.GCResponse{RegionError: regionErr}, nil
 	}
@@ -432,7 +468,10 @@ func (s *storeInstance) KvGC(ctx context.Context, req *kvrpcpb.GCRequest) (*kvrp
 }
 
 func (s *storeInstance) KvDeleteRange(ctx context.Context, req *kvrpcpb.DeleteRangeRequest) (*kvrpcpb.DeleteRangeResponse, error) {
-	reqCtx, regionErr := s.checkRequest(req.GetContext(), req.Size())
+	reqCtx, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
+	if ioErr != nil {
+		return nil, ioErr
+	}
 	if regionErr != nil {
 		return &kvrpcpb.DeleteRangeResponse{RegionError: regionErr}, nil
 	}
@@ -446,7 +485,10 @@ func (s *storeInstance) KvDeleteRange(ctx context.Context, req *kvrpcpb.DeleteRa
 
 // RawKV commands.
 func (s *storeInstance) RawGet(ctx context.Context, req *kvrpcpb.RawGetRequest) (*kvrpcpb.RawGetResponse, error) {
-	reqCtx, regionErr := s.checkRequest(req.GetContext(), req.Size())
+	reqCtx, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
+	if ioErr != nil {
+		return nil, ioErr
+	}
 	if regionErr != nil {
 		return &kvrpcpb.RawGetResponse{RegionError: regionErr}, nil
 	}
@@ -456,7 +498,10 @@ func (s *storeInstance) RawGet(ctx context.Context, req *kvrpcpb.RawGetRequest) 
 }
 
 func (s *storeInstance) RawBatchGet(ctx context.Context, req *kvrpcpb.RawBatchGetRequest) (*kvrpcpb.RawBatchGetResponse, error) {
-	reqCtx, regionErr := s.checkRequest(req.GetContext(), req.Size())
+	reqCtx, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
+	if ioErr != nil {
+		return nil, ioErr
+	}
 	if regionErr != nil {
 		return &kvrpcpb.RawBatchGetResponse{RegionError: regionErr}, nil
 	}
@@ -467,7 +512,10 @@ func (s *storeInstance) RawBatchGet(ctx context.Context, req *kvrpcpb.RawBatchGe
 }
 
 func (s *storeInstance) RawPut(ctx context.Context, req *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
-	reqCtx, regionErr := s.checkRequest(req.GetContext(), req.Size())
+	reqCtx, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
+	if ioErr != nil {
+		return nil, ioErr
+	}
 	if regionErr != nil {
 		return &kvrpcpb.RawPutResponse{RegionError: regionErr}, nil
 	}
@@ -476,7 +524,10 @@ func (s *storeInstance) RawPut(ctx context.Context, req *kvrpcpb.RawPutRequest) 
 }
 
 func (s *storeInstance) RawBatchPut(ctx context.Context, req *kvrpcpb.RawBatchPutRequest) (*kvrpcpb.RawBatchPutResponse, error) {
-	reqCtx, regionErr := s.checkRequest(req.GetContext(), req.Size())
+	reqCtx, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
+	if ioErr != nil {
+		return nil, ioErr
+	}
 	if regionErr != nil {
 		return &kvrpcpb.RawBatchPutResponse{RegionError: regionErr}, nil
 	}
@@ -491,7 +542,10 @@ func (s *storeInstance) RawBatchPut(ctx context.Context, req *kvrpcpb.RawBatchPu
 }
 
 func (s *storeInstance) RawDelete(ctx context.Context, req *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error) {
-	reqCtx, regionErr := s.checkRequest(req.GetContext(), req.Size())
+	reqCtx, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
+	if ioErr != nil {
+		return nil, ioErr
+	}
 	if regionErr != nil {
 		return &kvrpcpb.RawDeleteResponse{RegionError: regionErr}, nil
 	}
@@ -500,7 +554,10 @@ func (s *storeInstance) RawDelete(ctx context.Context, req *kvrpcpb.RawDeleteReq
 }
 
 func (s *storeInstance) RawBatchDelete(ctx context.Context, req *kvrpcpb.RawBatchDeleteRequest) (*kvrpcpb.RawBatchDeleteResponse, error) {
-	reqCtx, regionErr := s.checkRequest(req.GetContext(), req.Size())
+	reqCtx, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
+	if ioErr != nil {
+		return nil, ioErr
+	}
 	if regionErr != nil {
 		return &kvrpcpb.RawBatchDeleteResponse{RegionError: regionErr}, nil
 	}
@@ -509,7 +566,10 @@ func (s *storeInstance) RawBatchDelete(ctx context.Context, req *kvrpcpb.RawBatc
 }
 
 func (s *storeInstance) RawScan(ctx context.Context, req *kvrpcpb.RawScanRequest) (*kvrpcpb.RawScanResponse, error) {
-	reqCtx, regionErr := s.checkRequest(req.GetContext(), req.Size())
+	reqCtx, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
+	if ioErr != nil {
+		return nil, ioErr
+	}
 	if regionErr != nil {
 		return &kvrpcpb.RawScanResponse{RegionError: regionErr}, nil
 	}
@@ -525,7 +585,10 @@ func (s *storeInstance) RawScan(ctx context.Context, req *kvrpcpb.RawScanRequest
 }
 
 func (s *storeInstance) RawDeleteRange(ctx context.Context, req *kvrpcpb.RawDeleteRangeRequest) (*kvrpcpb.RawDeleteRangeResponse, error) {
-	reqCtx, regionErr := s.checkRequest(req.GetContext(), req.Size())
+	reqCtx, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
+	if ioErr != nil {
+		return nil, ioErr
+	}
 	if regionErr != nil {
 		return &kvrpcpb.RawDeleteRangeResponse{RegionError: regionErr}, nil
 	}
@@ -534,7 +597,10 @@ func (s *storeInstance) RawDeleteRange(ctx context.Context, req *kvrpcpb.RawDele
 }
 
 func (s *storeInstance) RawBatchScan(ctx context.Context, req *kvrpcpb.RawBatchScanRequest) (*kvrpcpb.RawBatchScanResponse, error) {
-	_, regionErr := s.checkRequest(req.GetContext(), req.Size())
+	_, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
+	if ioErr != nil {
+		return nil, ioErr
+	}
 	if regionErr != nil {
 		return &kvrpcpb.RawBatchScanResponse{RegionError: regionErr}, nil
 	}
@@ -548,7 +614,10 @@ func (s *storeInstance) UnsafeDestroyRange(ctx context.Context, req *kvrpcpb.Uns
 
 // SQL push down commands.
 func (s *storeInstance) Coprocessor(ctx context.Context, req *coprocessor.Request) (*coprocessor.Response, error) {
-	_, regionErr := s.checkRequest(req.GetContext(), req.Size())
+	_, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
+	if ioErr != nil {
+		return nil, ioErr
+	}
 	if regionErr != nil {
 		return &coprocessor.Response{RegionError: regionErr}, nil
 	}
@@ -556,7 +625,10 @@ func (s *storeInstance) Coprocessor(ctx context.Context, req *coprocessor.Reques
 }
 
 func (s *storeInstance) CoprocessorStream(req *coprocessor.Request, stream tikvpb.Tikv_CoprocessorStreamServer) error {
-	_, regionErr := s.checkRequest(req.GetContext(), req.Size())
+	_, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
+	if ioErr != nil {
+		return ioErr
+	}
 	if regionErr != nil {
 		stream.Send(&coprocessor.Response{RegionError: regionErr})
 		return nil
@@ -579,7 +651,10 @@ func (s *storeInstance) Snapshot(tikvpb.Tikv_SnapshotServer) error {
 
 // Region commands.
 func (s *storeInstance) SplitRegion(ctx context.Context, req *kvrpcpb.SplitRegionRequest) (*kvrpcpb.SplitRegionResponse, error) {
-	_, regionErr := s.checkRequest(req.GetContext(), req.Size())
+	_, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
+	if ioErr != nil {
+		return nil, ioErr
+	}
 	if regionErr != nil {
 		return &kvrpcpb.SplitRegionResponse{RegionError: regionErr}, nil
 	}
@@ -598,7 +673,10 @@ func (s *storeInstance) SplitRegion(ctx context.Context, req *kvrpcpb.SplitRegio
 
 // transaction debugger commands.
 func (s *storeInstance) MvccGetByKey(ctx context.Context, req *kvrpcpb.MvccGetByKeyRequest) (*kvrpcpb.MvccGetByKeyResponse, error) {
-	reqCtx, regionErr := s.checkRequest(req.GetContext(), req.Size())
+	reqCtx, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
+	if ioErr != nil {
+		return nil, ioErr
+	}
 	if regionErr != nil {
 		return &kvrpcpb.MvccGetByKeyResponse{RegionError: regionErr}, nil
 	}
@@ -611,7 +689,10 @@ func (s *storeInstance) MvccGetByKey(ctx context.Context, req *kvrpcpb.MvccGetBy
 }
 
 func (s *storeInstance) MvccGetByStartTs(ctx context.Context, req *kvrpcpb.MvccGetByStartTsRequest) (*kvrpcpb.MvccGetByStartTsResponse, error) {
-	_, regionErr := s.checkRequest(req.GetContext(), req.Size())
+	_, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
+	if ioErr != nil {
+		return nil, ioErr
+	}
 	if regionErr != nil {
 		return &kvrpcpb.MvccGetByStartTsResponse{RegionError: regionErr}, nil
 	}
@@ -698,11 +779,11 @@ func (s *storeInstance) deleteFailPoint(failPoint string) error {
 
 func (s *storeInstance) updateFailPoint(failPoint, value string) (interface{}, error) {
 	switch failPoint {
-	case serverBusyFailPoint:
+	case serverBusyFailPoint, IOFailPoint:
 		s.ctx = failpoint.WithHook(s.ctx, func(ctx context.Context, fpname string) bool {
-			return fpname == "github.com/tikv/mock-tikv/server/"+serverBusyFailPoint
+			return fpname == "github.com/tikv/mock-tikv/server/"+failPoint
 		})
-		if err := failpoint.Enable("github.com/tikv/mock-tikv/server/"+serverBusyFailPoint, value); err != nil {
+		if err := failpoint.Enable("github.com/tikv/mock-tikv/server/"+failPoint, value); err != nil {
 			return nil, err
 		}
 		return nil, nil
