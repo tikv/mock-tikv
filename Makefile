@@ -5,6 +5,9 @@ PACKAGE_DIRECTORIES := $(PACKAGES) | sed 's|github.com/tikv/mock-tikv/||'
 GOCHECKER := awk '{ print } END { if (NR > 0) { exit 1 } }'
 RETOOL := ./scripts/retool
 
+FAILPOINT_ENABLE  := $$(find $$PWD/ -type d | grep -vE "(\.git|tools)" | xargs bin/failpoint-ctl enable)
+FAILPOINT_DISABLE := $$(find $$PWD/ -type d | grep -vE "(\.git|tools)" | xargs bin/failpoint-ctl disable)
+
 GOVER_MAJOR := $(shell go version | sed -E -e "s/.*go([0-9]+)[.]([0-9]+).*/\1/")
 GOVER_MINOR := $(shell go version | sed -E -e "s/.*go([0-9]+)[.]([0-9]+).*/\2/")
 GO111 := $(shell [ $(GOVER_MAJOR) -gt 1 ] || [ $(GOVER_MAJOR) -eq 1 ] && [ $(GOVER_MINOR) -ge 11 ]; echo $$?)
@@ -41,6 +44,14 @@ retool-setup:
 	@which retool >/dev/null 2>&1 || go get github.com/twitchtv/retool
 	@./scripts/retool sync
 
+failpoint-enable: bin/failpoint-ctl
+# Converting gofail failpoints...
+	@$(FAILPOINT_ENABLE)
+
+failpoint-disable: bin/failpoint-ctl
+# Restoring gofail failpoints...
+	@$(FAILPOINT_DISABLE)
+
 check: retool-setup check-all
 
 static:
@@ -62,5 +73,8 @@ tidy:
 	@echo "go mod tidy"
 	GO111MODULE=on go mod tidy
 	git diff --quiet
+
+bin/failpoint-ctl: go.mod
+	go build -o $@ github.com/pingcap/failpoint/failpoint-ctl
 
 .PHONY: all tidy
