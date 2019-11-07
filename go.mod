@@ -12,7 +12,7 @@ require (
 	github.com/onsi/gomega v1.4.3 // indirect
 	github.com/pingcap/check v0.0.0-20190102082844-67f458068fc8
 	github.com/pingcap/errors v0.11.0
-	github.com/pingcap/failpoint v0.0.0-20190708053854-e7b1061e6e81
+	github.com/pingcap/failpoint v0.0.0-20191029060244-12f4ac2fd11d
 	github.com/pingcap/goleveldb v0.0.0-20171020122428-b9ff6c35079e
 	github.com/pingcap/kvproto v0.0.0-20190201122506-f9b9e7d362c7
 	github.com/pingcap/log v0.0.0-20190214045112-b37da76f67a7
