@@ -46,6 +46,7 @@ type mvccLock struct {
 	value   []byte
 	op      kvrpcpb.Op
 	ttl     uint64
+	minCommitTS uint64
 }
 
 type mvccEntry struct {
