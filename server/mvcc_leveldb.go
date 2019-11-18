@@ -790,6 +790,92 @@ func (mvcc *MVCCLevelDB) ScanLock(startKey, endKey []byte, maxTS uint64) ([]*kvr
 	return locks, nil
 }
 
+func ExtractPhysical(ts uint64) int64 {
+	return int64(ts >> 18)
+}
+
+func (mvcc *MVCCLevelDB) CheckTxnStatus(primaryKey []byte, lockTS, callerStartTS, currentTS uint64) (uint64, uint64, error) {
+	mvcc.mu.Lock()
+	defer mvcc.mu.Unlock()
+	startKey := mvccEncode(primaryKey, lockVer)
+	iter := newIterator(mvcc.db, &util.Range{
+		Start: startKey,
+	})
+	defer iter.Release()
+
+	if iter.Valid() {
+		dec := lockDecoder{
+			expectKey: primaryKey,
+		}
+		ok, err := dec.Decode(iter)
+		if err != nil {
+			return 0, 0, errors.Trace(err)
+		}
+		// If current transaction's lock exists.
+		if ok && dec.lock.startTS == lockTS {
+			fmt.Println("has lock ", lockTS)
+			lock := dec.lock
+			batch := &leveldb.Batch{}
+
+			// If the lock has already outdated, clean up it.
+			if uint64(ExtractPhysical(lock.startTS))+lock.ttl < uint64(ExtractPhysical(currentTS)) {
+				fmt.Println("outdated ", currentTS)
+				if err = rollbackLock(batch, lock, primaryKey, lockTS); err != nil {
+					return 0, 0, errors.Trace(err)
+				}
+				if err = mvcc.db.Write(batch, nil); err != nil {
+					return 0, 0, errors.Trace(err)
+				}
+				return 0, 0, nil
+			}
+			// If this is a large transaction and the lock is active, push forward the minCommitTS.
+			// lock.minCommitTS == 0 may be a secondary lock, or not a large transaction.
+			if lock.minCommitTS > 0 {
+				// We *must* guarantee the invariance lock.minCommitTS >= callerStartTS + 1
+				if lock.minCommitTS < callerStartTS+1 {
+					lock.minCommitTS = callerStartTS + 1
+				}
+			}
+
+			// Remove this condition should not affect correctness.
+			// We do it because pushing forward minCommitTS as far as possible could avoid
+			// the lock been pushed again several times, and thus reduce write operations.
+			if lock.minCommitTS < currentTS {
+				lock.minCommitTS = currentTS
+			}
+
+			writeKey := mvccEncode(primaryKey, lockVer)
+			writeValue, err := lock.MarshalBinary()
+			if err != nil {
+				return 0, 0, errors.Trace(err)
+			}
+			batch.Put(writeKey, writeValue)
+			if err = mvcc.db.Write(batch, nil); err != nil {
+				return 0, 0, errors.Trace(err)
+			}
+			return lock.ttl, 0, nil
+		}
+		fmt.Println("not exists")
+		// If current transaction's lock does not exist.
+		// If the commit info of the current transaction exists.
+		c, ok, err := getTxnCommitInfo(iter, primaryKey, lockTS)
+		if err != nil {
+			return 0, 0, errors.Trace(err)
+		}
+		if ok {
+			// If current transaction is already committed.
+			if c.valueType != typeRollback {
+				return 0, c.commitTS, nil
+			}
+			// If current transaction is already rollback.
+			return 0, 0, nil
+		}
+	}
+	// If current transaction is not prewritted before, it may be pessimistic lock.
+	// When pessimistic lock rollback, it may not leave a 'rollbacked' tombstone.
+	return 0, 0, nil
+}
+
 // ResolveLock implements the MVCCStore interface.
 func (mvcc *MVCCLevelDB) ResolveLock(startKey, endKey []byte, startTS, commitTS uint64) error {
 	mvcc.mu.Lock()

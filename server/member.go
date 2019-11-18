@@ -63,6 +63,14 @@ func (m *memberInstance) stop() {
 	m.server.GracefulStop()
 }
 
+func (m *memberInstance) GetOperator(ctx context.Context, request *pdpb.GetOperatorRequest) (*pdpb.GetOperatorResponse, error) {
+	panic("GetOperator not yet implemented")
+}
+
+func (m *memberInstance) ScanRegions(ctx context.Context, request *pdpb.ScanRegionsRequest) (*pdpb.ScanRegionsResponse, error) {
+	panic("GetOperator not yet implemented")
+}
+
 func (m *memberInstance) GetMembers(ctx context.Context, request *pdpb.GetMembersRequest) (*pdpb.GetMembersResponse, error) {
 	return &pdpb.GetMembersResponse{
 		Header:     m.cluster.header(),

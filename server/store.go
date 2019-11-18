@@ -16,12 +16,11 @@ package server
 import (
 	"bytes"
 	"context"
-	"github.com/pingcap/failpoint"
 	"io"
 	"net"
-	"strconv"
 
 	"github.com/golang/protobuf/proto"
+	"github.com/pingcap/failpoint"
 	"github.com/pingcap/kvproto/pkg/coprocessor"
 	"github.com/pingcap/kvproto/pkg/errorpb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
@@ -36,6 +35,7 @@ const requestMaxSize = 8 * 1024 * 1024
 const (
 	serverBusyFailPoint = "server-busy"
 	IOFailPoint         = "io-timeout"
+	rpcCommitFailPoint  = "rpc-commit-result"
 )
 
 type storeRequestContext struct {
@@ -258,6 +258,22 @@ func (s *storeInstance) checkRequest(ctx *kvrpcpb.Context, size int) (*storeRequ
 	return reqCtx, s.checkRequestSize(size), nil
 }
 
+func (s *storeInstance) ReadIndex(context.Context, *kvrpcpb.ReadIndexRequest) (*kvrpcpb.ReadIndexResponse, error) {
+	panic("ReadIndex not yet implemented")
+
+}
+func (s *storeInstance) KvPessimisticLock(context.Context, *kvrpcpb.PessimisticLockRequest) (*kvrpcpb.PessimisticLockResponse, error) {
+	panic("KvPessimisticLock not yet implemented")
+}
+
+func (s *storeInstance) KVPessimisticRollback(context.Context, *kvrpcpb.PessimisticRollbackRequest) (*kvrpcpb.PessimisticRollbackResponse, error) {
+	panic("KvPessimisticRollback not yet implemented")
+}
+
+func (s *storeInstance) KvTxnHeartBeat(context.Context, *kvrpcpb.TxnHeartBeatRequest) (*kvrpcpb.TxnHeartBeatResponse, error) {
+	panic("KvTxnHeartBeat not yet implemented")
+}
+
 // KV commands with mvcc/txn supported.
 func (s *storeInstance) KvGet(ctx context.Context, req *kvrpcpb.GetRequest) (*kvrpcpb.GetResponse, error) {
 	reqCtx, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
@@ -311,7 +327,7 @@ func (s *storeInstance) KvPrewrite(ctx context.Context, req *kvrpcpb.PrewriteReq
 	}
 	for _, m := range req.Mutations {
 		if !reqCtx.checkKeyInRegion(m.GetKey()) {
-			panic("KvPrewrite: key not in region")
+			panic("KvPrewrite: key " + string(m.GetKey()) +" not in region" + string(reqCtx.startKey) + " , " + string(reqCtx.endKey))
 		}
 	}
 	errs := reqCtx.store.Prewrite(req.GetMutations(), req.GetPrimaryLock(), req.GetStartVersion(), req.GetLockTtl())
@@ -433,6 +449,27 @@ func (s *storeInstance) KvScanLock(ctx context.Context, req *kvrpcpb.ScanLockReq
 	return &kvrpcpb.ScanLockResponse{
 		Locks: locks,
 	}, nil
+}
+
+func (s *storeInstance) KvCheckTxnStatus(ctx context.Context, req *kvrpcpb.CheckTxnStatusRequest) (*kvrpcpb.CheckTxnStatusResponse, error) {
+	reqCtx, regionErr, ioErr := s.checkRequest(req.GetContext(), req.Size())
+	if ioErr != nil {
+		return nil, ioErr
+	}
+	if regionErr != nil {
+		return &kvrpcpb.CheckTxnStatusResponse{RegionError: regionErr}, nil
+	}
+	if !reqCtx.checkKeyInRegion(req.PrimaryKey) {
+		panic("KvCheckTxnStatus: key not in region")
+	}
+	var resp kvrpcpb.CheckTxnStatusResponse
+	ttl, commitTS, err := reqCtx.store.CheckTxnStatus(req.GetPrimaryKey(), req.GetLockTs(), req.GetCallerStartTs(), req.GetCurrentTs())
+	if err != nil {
+		resp.Error = convertToKeyError(err)
+	} else {
+		resp.LockTtl, resp.CommitVersion = ttl, commitTS
+	}
+	return &resp, nil
 }
 
 func (s *storeInstance) KvResolveLock(ctx context.Context, req *kvrpcpb.ResolveLockRequest) (*kvrpcpb.ResolveLockResponse, error) {
@@ -759,10 +796,13 @@ func (s *storeInstance) BatchCommands(stream tikvpb.Tikv_BatchCommandsServer) er
 }
 
 func (s *storeInstance) getFailPoints() map[string]interface{} {
-	return map[string]interface{}{
-		"rpc-commit-result":  s.rpcCommitResult,
-		"rpc-commit-timeout": s.rpcCommitTimeout,
+	m := map[string]interface{}{}
+	failpoints := failpoint.List()
+	for _, fail := range failpoints {
+		status, _ := failpoint.Status(fail)
+		m[fail] = status
 	}
+	return m
 }
 
 func (s *storeInstance) deleteFailPoint(failPoint string) error {
@@ -777,7 +817,7 @@ func (s *storeInstance) deleteFailPoint(failPoint string) error {
 
 func (s *storeInstance) updateFailPoint(failPoint, value string) (interface{}, error) {
 	switch failPoint {
-	case serverBusyFailPoint, IOFailPoint:
+	case serverBusyFailPoint, IOFailPoint, rpcCommitFailPoint:
 		s.ctx = failpoint.WithHook(s.ctx, func(ctx context.Context, fpname string) bool {
 			return fpname == "github.com/tikv/mock-tikv/server/"+failPoint
 		})
@@ -785,31 +825,6 @@ func (s *storeInstance) updateFailPoint(failPoint, value string) (interface{}, e
 			return nil, err
 		}
 		return nil, nil
-	case "rpc-commit-result":
-		switch value {
-		case "timeout":
-			fallthrough
-		case "notLeader":
-			fallthrough
-		case "keyError":
-			fallthrough
-		case "":
-			s.rpcCommitResult = value
-		default:
-			return nil, errInvalidFailPointValue
-		}
-		return s.rpcCommitResult, nil
-	case "rpc-commit-timeout":
-		if value == "" {
-			s.rpcCommitTimeout = false
-		} else {
-			commitTimeout, err := strconv.ParseBool(value)
-			if err != nil {
-				return nil, err
-			}
-			s.rpcCommitTimeout = commitTimeout
-		}
-		return s.rpcCommitTimeout, nil
 	}
 	return nil, errFailPointNotFound
 }
