@@ -813,13 +813,11 @@ func (mvcc *MVCCLevelDB) CheckTxnStatus(primaryKey []byte, lockTS, callerStartTS
 		}
 		// If current transaction's lock exists.
 		if ok && dec.lock.startTS == lockTS {
-			fmt.Println("has lock ", lockTS)
 			lock := dec.lock
 			batch := &leveldb.Batch{}
 
 			// If the lock has already outdated, clean up it.
 			if uint64(ExtractPhysical(lock.startTS))+lock.ttl < uint64(ExtractPhysical(currentTS)) {
-				fmt.Println("outdated ", currentTS)
 				if err = rollbackLock(batch, lock, primaryKey, lockTS); err != nil {
 					return 0, 0, errors.Trace(err)
 				}
@@ -855,7 +853,6 @@ func (mvcc *MVCCLevelDB) CheckTxnStatus(primaryKey []byte, lockTS, callerStartTS
 			}
 			return lock.ttl, 0, nil
 		}
-		fmt.Println("not exists")
 		// If current transaction's lock does not exist.
 		// If the commit info of the current transaction exists.
 		c, ok, err := getTxnCommitInfo(iter, primaryKey, lockTS)
