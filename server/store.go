@@ -327,7 +327,7 @@ func (s *storeInstance) KvPrewrite(ctx context.Context, req *kvrpcpb.PrewriteReq
 	}
 	for _, m := range req.Mutations {
 		if !reqCtx.checkKeyInRegion(m.GetKey()) {
-			panic("KvPrewrite: key " + string(m.GetKey()) +" not in region" + string(reqCtx.startKey) + " , " + string(reqCtx.endKey))
+			panic("KvPrewrite: key " + string(m.GetKey()) + " not in region" + string(reqCtx.startKey) + " , " + string(reqCtx.endKey))
 		}
 	}
 	errs := reqCtx.store.Prewrite(req.GetMutations(), req.GetPrimaryLock(), req.GetStartVersion(), req.GetLockTtl())
@@ -656,7 +656,7 @@ func (s *storeInstance) Coprocessor(ctx context.Context, req *coprocessor.Reques
 	if regionErr != nil {
 		return &coprocessor.Response{RegionError: regionErr}, nil
 	}
-	return nil, nil
+	return &coprocessor.Response{}, nil
 }
 
 func (s *storeInstance) CoprocessorStream(req *coprocessor.Request, stream tikvpb.Tikv_CoprocessorStreamServer) error {
@@ -669,6 +669,22 @@ func (s *storeInstance) CoprocessorStream(req *coprocessor.Request, stream tikvp
 		return nil
 	}
 	return nil
+}
+
+func (s *storeInstance) RegisterLockObserver(context.Context, *kvrpcpb.RegisterLockObserverRequest) (*kvrpcpb.RegisterLockObserverResponse, error) {
+	panic("unimplemented")
+}
+
+func (s *storeInstance) CheckLockObserver(context.Context, *kvrpcpb.CheckLockObserverRequest) (*kvrpcpb.CheckLockObserverResponse, error){
+	panic("unimplemented")
+}
+
+func (s *storeInstance) RemoveLockObserver(context.Context, *kvrpcpb.RemoveLockObserverRequest) (*kvrpcpb.RemoveLockObserverResponse, error) {
+	panic("unimplemented")
+}
+
+func (s *storeInstance) PhysicalScanLock(*kvrpcpb.PhysicalScanLockRequest, tikvpb.Tikv_PhysicalScanLockServer) error {
+	panic("unimplemented")
 }
 
 // Raft commands (tikv <-> tikv).
