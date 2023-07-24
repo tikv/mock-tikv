@@ -668,6 +668,7 @@ func (s *storeInstance) CoprocessorStream(req *coprocessor.Request, stream tikvp
 		stream.Send(&coprocessor.Response{RegionError: regionErr})
 		return nil
 	}
+	stream.Send(&coprocessor.Response{})
 	return nil
 }
 
@@ -675,7 +676,7 @@ func (s *storeInstance) RegisterLockObserver(context.Context, *kvrpcpb.RegisterL
 	panic("unimplemented")
 }
 
-func (s *storeInstance) CheckLockObserver(context.Context, *kvrpcpb.CheckLockObserverRequest) (*kvrpcpb.CheckLockObserverResponse, error){
+func (s *storeInstance) CheckLockObserver(context.Context, *kvrpcpb.CheckLockObserverRequest) (*kvrpcpb.CheckLockObserverResponse, error) {
 	panic("unimplemented")
 }
 
