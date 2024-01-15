@@ -710,6 +710,36 @@ func (s *storeInstance) SplitRegion(ctx context.Context, req *kvrpcpb.SplitRegio
 	if regionErr != nil {
 		return &kvrpcpb.SplitRegionResponse{RegionError: regionErr}, nil
 	}
+	if len(req.GetSplitKey()) == 0 {
+		// Accept `split_keys` instead of `split_key`
+		var regions []*metapb.Region
+		for _, skey := range req.GetSplitKeys() {
+			key := NewMvccKey(skey)
+			region, _ := s.cluster.getRegionByKey(key)
+			if bytes.Equal(region.GetStartKey(), key) {
+				continue
+			}
+			newRegionID, newPeerIDs := s.cluster.allocID(), s.cluster.allocIDs(len(region.Peers))
+			left, right, err := s.cluster.SplitRaw(region.GetId(), newRegionID, key, newPeerIDs, newPeerIDs[0])
+			if err != nil {
+				return &kvrpcpb.SplitRegionResponse{}, err
+			}
+			regions = append(regions, left, right)
+		}
+		if len(regions) == 2 {
+			return &kvrpcpb.SplitRegionResponse{
+				Left:    regions[0],
+				Right:   regions[1],
+				Regions: regions,
+			}, nil
+		} else {
+			return &kvrpcpb.SplitRegionResponse{
+				Regions: regions,
+			}, nil
+		}
+	}
+
+	// deprecated split_key routine
 	key := NewMvccKey(req.GetSplitKey())
 	region, _ := s.cluster.getRegionByKey(key)
 	if bytes.Equal(region.GetStartKey(), key) {
